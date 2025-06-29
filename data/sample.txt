@@ -1,0 +1,11 @@
+This is a sample document for testing the data folder functionality.
+
+The Mistral 7B model is a powerful language model that can process and understand various types of documents including:
+- PDF files
+- Word documents (DOC, DOCX)
+- CSV spreadsheets
+- Plain text files
+
+This feature allows users to either upload documents manually or use documents that are pre-placed in the ./data folder, which gets mounted into the container at /data.
+
+The system will automatically scan the data folder for supported document types and extract text from them for use in conversations with the AI assistant. 

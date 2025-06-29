@@ -11,9 +11,12 @@ import GPUtil
 import psutil
 import time
 import json
+import glob
 from typing import List, Dict, Any
+from pathlib import Path
 
 MODEL_DIR = "./models/mistral-7b"
+DATA_DIR = "/data"  # Container path for data folder
 
 st.set_page_config(page_title="Mistral 7B Chat with Document Upload", layout="wide")
 
@@ -24,6 +27,10 @@ if "document_context" not in st.session_state:
     st.session_state.document_context = ""
 if "context_window" not in st.session_state:
     st.session_state.context_window = 10  # Number of recent messages to keep
+if "data_folder_documents" not in st.session_state:
+    st.session_state.data_folder_documents = {}
+if "document_source" not in st.session_state:
+    st.session_state.document_source = "upload"  # "upload" or "data_folder"
 
 @st.cache_resource(show_spinner=True)
 def load_model_and_tokenizer():
@@ -57,6 +64,91 @@ def extract_text_from_file(uploaded_file):
 
     os.unlink(tmp_path)
     return text
+
+def extract_text_from_file_path(file_path):
+    """Extract text from a file given its path."""
+    suffix = Path(file_path).suffix.lower()[1:]  # Remove the dot
+    
+    try:
+        if suffix == "pdf":
+            elements = partition(file_path)
+            text = "\n".join(str(el) for el in elements)
+        elif suffix in ["doc", "docx"]:
+            doc = docx.Document(file_path)
+            text = "\n".join(p.text for p in doc.paragraphs)
+        elif suffix == "csv":
+            df = pd.read_csv(file_path)
+            text = df.to_string()
+        elif suffix == "txt":
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+        else:
+            # Try to read as text for unknown extensions
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+        
+        return text
+    except Exception as e:
+        return f"Error reading file {file_path}: {str(e)}"
+
+def scan_data_folder():
+    """Scan the data folder for supported document types."""
+    if not os.path.exists(DATA_DIR):
+        return {}
+    
+    supported_extensions = ['.pdf', '.doc', '.docx', '.csv', '.txt']
+    documents = {}
+    
+    # Recursively scan the data directory
+    for root, dirs, files in os.walk(DATA_DIR):
+        for file in files:
+            file_path = os.path.join(root, file)
+            file_ext = Path(file).suffix.lower()
+            
+            if file_ext in supported_extensions:
+                # Get relative path from data directory
+                rel_path = os.path.relpath(file_path, DATA_DIR)
+                documents[rel_path] = {
+                    'path': file_path,
+                    'size': os.path.getsize(file_path),
+                    'extension': file_ext
+                }
+    
+    return documents
+
+def load_data_folder_documents():
+    """Load and extract text from all documents in the data folder."""
+    documents = scan_data_folder()
+    extracted_docs = {}
+    
+    if documents:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for idx, (rel_path, doc_info) in enumerate(documents.items()):
+            status_text.text(f"Processing {rel_path}...")
+            
+            try:
+                text = extract_text_from_file_path(doc_info['path'])
+                extracted_docs[rel_path] = {
+                    'text': text,
+                    'size': doc_info['size'],
+                    'extension': doc_info['extension']
+                }
+            except Exception as e:
+                extracted_docs[rel_path] = {
+                    'text': f"Error extracting text: {str(e)}",
+                    'size': doc_info['size'],
+                    'extension': doc_info['extension'],
+                    'error': True
+                }
+            
+            progress_bar.progress((idx + 1) / len(documents))
+        
+        progress_bar.empty()
+        status_text.empty()
+    
+    return extracted_docs
 
 def build_conversation_prompt(user_input: str, conversation_history: List[Dict], document_context: str = "") -> str:
     """Build a prompt that includes conversation history and document context."""
@@ -195,6 +287,16 @@ def main():
     with st.sidebar:
         st.header("⚙️ Settings")
         
+        # Document source selection
+        st.header("📁 Document Source")
+        document_source = st.radio(
+            "Choose document source:",
+            ["📤 Upload Files", "📂 Data Folder"],
+            index=0 if st.session_state.document_source == "upload" else 1,
+            help="Upload files manually or use documents from ./data folder"
+        )
+        st.session_state.document_source = "upload" if document_source == "📤 Upload Files" else "data_folder"
+        
         # Context window control
         context_window = st.slider(
             "Conversation Memory (messages)", 
@@ -254,28 +356,82 @@ def main():
 
     tokenizer, model = load_model_and_tokenizer()
 
-    # Document upload
-    uploaded_files = st.file_uploader("Upload PDF, DOC, DOCX, CSV or TXT files", type=["pdf", "doc", "docx", "csv", "txt"], accept_multiple_files=True)
+    # Document handling based on source selection
+    if st.session_state.document_source == "upload":
+        # Original file upload functionality
+        uploaded_files = st.file_uploader("Upload PDF, DOC, DOCX, CSV or TXT files", type=["pdf", "doc", "docx", "csv", "txt"], accept_multiple_files=True)
+        
+        if uploaded_files:
+            st.info(f"Extracting text from {len(uploaded_files)} files...")
+            progress_bar = st.progress(0)
+            combined_text = ""
+            
+            for idx, file in enumerate(uploaded_files):
+                text = extract_text_from_file(file)
+                combined_text += f"\n--- Start of {file.name} ---\n{text}\n--- End of {file.name} ---\n"
+                progress_bar.progress((idx + 1) / len(uploaded_files))
+            
+            progress_bar.empty()
+            st.success("Text extraction complete.")
+            
+            # Update document context in session state
+            st.session_state.document_context = combined_text
+            
+            # Display document text in expander
+            with st.expander("📄 View Document Text"):
+                st.text_area("Combined Document Text", combined_text, height=300, key="document_text_display")
     
-    if uploaded_files:
-        st.info(f"Extracting text from {len(uploaded_files)} files...")
-        progress_bar = st.progress(0)
-        combined_text = ""
+    else:
+        # Data folder functionality
+        st.header("📂 Data Folder Documents")
         
-        for idx, file in enumerate(uploaded_files):
-            text = extract_text_from_file(file)
-            combined_text += f"\n--- Start of {file.name} ---\n{text}\n--- End of {file.name} ---\n"
-            progress_bar.progress((idx + 1) / len(uploaded_files))
-        
-        progress_bar.empty()
-        st.success("Text extraction complete.")
-        
-        # Update document context in session state
-        st.session_state.document_context = combined_text
-        
-        # Display document text in expander
-        with st.expander("📄 View Document Text"):
-            st.text_area("Combined Document Text", combined_text, height=300, key="document_text_display")
+        # Check if data folder exists
+        if not os.path.exists(DATA_DIR):
+            st.warning(f"Data folder not found at {DATA_DIR}. Please ensure the ./data folder is mounted correctly.")
+        else:
+            # Scan for documents
+            documents = scan_data_folder()
+            
+            if not documents:
+                st.info("No supported documents found in the data folder. Supported formats: PDF, DOC, DOCX, CSV, TXT")
+            else:
+                st.success(f"Found {len(documents)} documents in the data folder.")
+                
+                # Show document list
+                with st.expander(f"📋 Document List ({len(documents)} files)"):
+                    for rel_path, doc_info in documents.items():
+                        size_mb = doc_info['size'] / (1024 * 1024)
+                        st.text(f"📄 {rel_path} ({size_mb:.2f} MB)")
+                
+                # Load documents button
+                if st.button("🔄 Load Documents from Data Folder"):
+                    with st.spinner("Loading documents from data folder..."):
+                        extracted_docs = load_data_folder_documents()
+                        st.session_state.data_folder_documents = extracted_docs
+                        
+                        # Combine all extracted text
+                        combined_text = ""
+                        for rel_path, doc_data in extracted_docs.items():
+                            if not doc_data.get('error', False):
+                                combined_text += f"\n--- Start of {rel_path} ---\n{doc_data['text']}\n--- End of {rel_path} ---\n"
+                        
+                        st.session_state.document_context = combined_text
+                        st.success(f"Loaded {len(extracted_docs)} documents successfully!")
+                
+                # Show loaded documents
+                if st.session_state.data_folder_documents:
+                    st.subheader("📄 Loaded Documents")
+                    with st.expander("📋 View Loaded Documents"):
+                        for rel_path, doc_data in st.session_state.data_folder_documents.items():
+                            if doc_data.get('error', False):
+                                st.error(f"❌ {rel_path}: {doc_data['text']}")
+                            else:
+                                st.success(f"✅ {rel_path} ({len(doc_data['text'])} characters)")
+                    
+                    # Show combined text
+                    if st.session_state.document_context:
+                        with st.expander("📄 View Combined Document Text"):
+                            st.text_area("Combined Document Text", st.session_state.document_context, height=300, key="data_folder_text_display")
 
     # Chat interface
     st.header("💬 Chat Interface")

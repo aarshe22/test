@@ -4,6 +4,12 @@ A powerful AI chat application built with Streamlit that allows you to interact 
 
 ## ✨ New Features (Latest Update)
 
+### 📂 Data Folder Integration
+- **Automatic Document Loading**: Place documents in `./data` folder for automatic processing
+- **Dual Document Sources**: Choose between manual upload or data folder documents
+- **Recursive Scanning**: Automatically finds documents in subdirectories
+- **Batch Processing**: Load all documents from data folder with one click
+
 ### 🧠 Conversation Memory
 - **Persistent Conversations**: Your chat history is maintained throughout the session
 - **Configurable Context Window**: Adjust how many recent messages to include (5-20 messages)
@@ -25,6 +31,7 @@ A powerful AI chat application built with Streamlit that allows you to interact 
 ### Core Functionality
 - **AI Chat Interface**: Interactive conversations with Mistral 7B model
 - **Document Upload**: Support for PDF, DOC, DOCX, CSV, and TXT files
+- **Data Folder Integration**: Automatic processing of documents in `./data` folder
 - **Multi-document Analysis**: Upload and analyze multiple documents simultaneously
 - **Context-Aware Responses**: AI considers both conversation history and document content
 
@@ -32,9 +39,11 @@ A powerful AI chat application built with Streamlit that allows you to interact 
 - **Text Extraction**: Automatic text extraction from various file formats
 - **Format Preservation**: Maintains document structure where possible
 - **Batch Processing**: Handle multiple files efficiently
+- **Dual Source Support**: Manual upload or automatic data folder scanning
 
 ### User Interface
 - **Responsive Design**: Clean, modern interface with sidebar controls
+- **Document Source Selection**: Choose between upload and data folder modes
 - **Real-time Stats**: Monitor system performance during conversations
 - **Export Capabilities**: Save conversations for later reference
 - **Tabbed Views**: Organized conversation display with summary tabs
@@ -58,26 +67,46 @@ A powerful AI chat application built with Streamlit that allows you to interact 
    echo "your_hf_token_here" > hf-token
    ```
 
-3. **Download the model** (first time only)
+3. **Set up the data folder** (optional but recommended)
+   ```bash
+   ./setup_data_folder.sh
+   ```
+
+4. **Download the model** (first time only)
    ```bash
    python download_model.py
    ```
 
-4. **Start the application**
+5. **Start the application**
    ```bash
    docker-compose up --build
    ```
 
-5. **Access the application**
+6. **Access the application**
    Open your browser and go to `http://localhost:8501`
 
 ## 📋 Usage
 
+### Document Sources
+The application supports two ways to provide documents for analysis:
+
+#### 📤 Manual Upload
+1. Select "📤 Upload Files" in the Document Source section
+2. Use the file uploader to select PDF, DOC, DOCX, CSV, or TXT files
+3. Files are automatically processed and text is extracted
+
+#### 📂 Data Folder
+1. Place your documents in the `./data` folder in the project root
+2. Select "📂 Data Folder" in the Document Source section
+3. Click "🔄 Load Documents from Data Folder" to process all documents
+4. The system will scan recursively and extract text from all supported files
+
 ### Starting a Conversation
-1. Upload documents (optional) using the file uploader
-2. Type your question in the chat input
-3. Click "Generate Response" to get an AI response
-4. Continue the conversation - the AI remembers previous context
+1. Choose your document source (upload or data folder)
+2. Load your documents using the appropriate method
+3. Type your question in the chat input
+4. Click "Generate Response" to get an AI response
+5. Continue the conversation - the AI remembers previous context
 
 ### Managing Conversations
 - **Adjust Context Window**: Use the slider in the sidebar to control memory
@@ -99,7 +128,9 @@ A powerful AI chat application built with Streamlit that allows you to interact 
 ### Docker Configuration
 - **GPU Support**: Configured for NVIDIA GPUs with CUDA 11.8
 - **Port**: Application runs on port 8501
-- **Volumes**: App directory mounted for development
+- **Volumes**: 
+  - App directory mounted for development
+  - `./data` folder mounted to `/data` in container for document access
 
 ## 📊 System Requirements
 
@@ -125,6 +156,33 @@ A powerful AI chat application built with Streamlit that allows you to interact 
 - **General Chat**: Have natural conversations with context
 - **Follow-up Questions**: Ask follow-ups based on previous responses
 - **Multi-turn Discussions**: Engage in complex multi-step conversations
+
+## 🧪 Testing
+
+### Data Folder Functionality
+To test the data folder functionality:
+
+1. **Run the setup script** (if not already done):
+   ```bash
+   ./setup_data_folder.sh
+   ```
+
+2. **Test the scanning functionality**:
+   ```bash
+   python test_data_folder.py
+   ```
+
+3. **Start the application and test**:
+   - Start with `docker-compose up --build`
+   - Select "📂 Data Folder" in the Document Source section
+   - Click "🔄 Load Documents from Data Folder"
+   - Verify that the sample documents are loaded
+
+### Troubleshooting Data Folder Issues
+- **No documents found**: Ensure files have supported extensions (.pdf, .doc, .docx, .csv, .txt)
+- **Permission errors**: Check that the ./data folder has proper read permissions
+- **Mount issues**: Verify the volume mount in docker-compose.yml is correct
+- **Path issues**: The container expects documents at `/data`, mapped from `./data`
 
 ## 🔍 Troubleshooting
 
