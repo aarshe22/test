@@ -1,0 +1,9 @@
+This is document 1 for testing the document selection feature.
+
+The document selection system allows users to:
+- Select individual documents using checkboxes
+- Use a "Select All" checkbox to toggle all documents
+- See which documents are selected for processing
+- Load only the selected documents into memory
+
+This helps with memory management by allowing users to process only the documents they need. 

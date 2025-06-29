@@ -6,9 +6,10 @@ A powerful AI chat application built with Streamlit that allows you to interact 
 
 ### 📂 Data Folder Integration
 - **Automatic Document Loading**: Place documents in `./data` folder for automatic processing
+- **Document Selection**: Choose specific documents with checkboxes and "Select All" option
 - **Dual Document Sources**: Choose between manual upload or data folder documents
 - **Recursive Scanning**: Automatically finds documents in subdirectories
-- **Batch Processing**: Load all documents from data folder with one click
+- **Batch Processing**: Load selected documents with one click
 
 ### 🧠 Conversation Memory
 - **Persistent Conversations**: Your chat history is maintained throughout the session
@@ -32,6 +33,7 @@ A powerful AI chat application built with Streamlit that allows you to interact 
 - **AI Chat Interface**: Interactive conversations with Mistral 7B model
 - **Document Upload**: Support for PDF, DOC, DOCX, CSV, and TXT files
 - **Data Folder Integration**: Automatic processing of documents in `./data` folder
+- **Document Selection**: Choose specific documents to process with checkboxes
 - **Multi-document Analysis**: Upload and analyze multiple documents simultaneously
 - **Context-Aware Responses**: AI considers both conversation history and document content
 
@@ -98,8 +100,9 @@ The application supports two ways to provide documents for analysis:
 #### 📂 Data Folder
 1. Place your documents in the `./data` folder in the project root
 2. Select "📂 Data Folder" in the Document Source section
-3. Click "🔄 Load Documents from Data Folder" to process all documents
-4. The system will scan recursively and extract text from all supported files
+3. Use the document selection checkboxes to choose which files to process
+4. Click "🔄 Load Selected Documents" to process the selected files
+5. The system will scan recursively and extract text from all selected files
 
 ### Starting a Conversation
 1. Choose your document source (upload or data folder)

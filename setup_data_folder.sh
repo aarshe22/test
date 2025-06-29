@@ -49,6 +49,56 @@ else
     echo "✅ Sample CSV file already exists"
 fi
 
+if [ ! -f "./data/document1.txt" ]; then
+    echo "Creating document1.txt..."
+    cat > ./data/document1.txt << 'EOF'
+This is document 1 for testing the document selection feature.
+
+The document selection system allows users to:
+- Select individual documents using checkboxes
+- Use a "Select All" checkbox to toggle all documents
+- See which documents are selected for processing
+- Load only the selected documents into memory
+
+This helps with memory management by allowing users to process only the documents they need.
+EOF
+    echo "✅ Document 1 created"
+else
+    echo "✅ Document 1 already exists"
+fi
+
+if [ ! -f "./data/document2.txt" ]; then
+    echo "Creating document2.txt..."
+    cat > ./data/document2.txt << 'EOF'
+This is document 2 for testing the document selection feature.
+
+Key features of the selection system:
+- Real-time selection state management
+- Automatic "Select All" state updates
+- Visual feedback showing selected count
+- Memory-efficient processing of only selected files
+
+Users can now choose exactly which documents they want to analyze, making the system more flexible and efficient.
+EOF
+    echo "✅ Document 2 created"
+else
+    echo "✅ Document 2 already exists"
+fi
+
+if [ ! -f "./data/sample_report.csv" ]; then
+    echo "Creating sample_report.csv..."
+    cat > ./data/sample_report.csv << 'EOF'
+Quarter,Revenue,Expenses,Profit
+Q1 2024,150000,120000,30000
+Q2 2024,180000,140000,40000
+Q3 2024,200000,160000,40000
+Q4 2024,220000,170000,50000
+EOF
+    echo "✅ Sample report CSV created"
+else
+    echo "✅ Sample report CSV already exists"
+fi
+
 echo ""
 echo "🎉 Data folder setup complete!"
 echo ""
@@ -57,7 +107,8 @@ echo "1. Add your own documents to the ./data folder"
 echo "2. Supported formats: PDF, DOC, DOCX, CSV, TXT"
 echo "3. Start the application with: docker-compose up --build"
 echo "4. Select '📂 Data Folder' in the Document Source section"
-echo "5. Click '🔄 Load Documents from Data Folder'"
+echo "5. Use the document selection checkboxes to choose which files to process"
+echo "6. Click '🔄 Load Selected Documents'"
 echo ""
 echo "📁 Current data folder contents:"
 ls -la ./data/ 

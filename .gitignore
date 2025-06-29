@@ -1,3 +1,8 @@
 models/*
 data/*
 hf-token
+!data/sample.txt
+!data/sample_data.csv
+!data/document1.txt
+!data/document2.txt
+!data/sample_report.csv

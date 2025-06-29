@@ -37,6 +37,10 @@ if "data_folder_documents" not in st.session_state:
     st.session_state.data_folder_documents = {}
 if "document_source" not in st.session_state:
     st.session_state.document_source = "upload"  # "upload" or "data_folder"
+if "selected_documents" not in st.session_state:
+    st.session_state.selected_documents = set()
+if "select_all_documents" not in st.session_state:
+    st.session_state.select_all_documents = True
 
 @st.cache_resource(show_spinner=True)
 def load_model_and_tokenizer():
@@ -401,6 +405,118 @@ def get_memory_usage():
         return allocated, reserved
     return 0, 0
 
+def handle_select_all_documents(documents):
+    """Handle select all documents checkbox."""
+    if st.session_state.select_all_documents:
+        # Select all documents
+        st.session_state.selected_documents = set(documents.keys())
+    else:
+        # Deselect all documents
+        st.session_state.selected_documents.clear()
+
+def handle_individual_document_selection(doc_path, is_selected):
+    """Handle individual document selection."""
+    if is_selected:
+        st.session_state.selected_documents.add(doc_path)
+    else:
+        st.session_state.selected_documents.discard(doc_path)
+    
+    # Update select all state based on current selections
+    total_docs = len(st.session_state.get('available_documents', {}))
+    if total_docs > 0:
+        st.session_state.select_all_documents = len(st.session_state.selected_documents) == total_docs
+
+def load_selected_documents():
+    """Load only the selected documents from the data folder."""
+    documents = scan_data_folder()
+    if not documents:
+        return {}
+    
+    # Store available documents in session state for selection
+    st.session_state.available_documents = documents
+    
+    # If no documents are selected, select all by default
+    if not st.session_state.selected_documents:
+        st.session_state.selected_documents = set(documents.keys())
+        st.session_state.select_all_documents = True
+    
+    # Filter to only selected documents
+    selected_docs = {k: v for k, v in documents.items() if k in st.session_state.selected_documents}
+    
+    if not selected_docs:
+        st.warning("No documents selected. Please select at least one document.")
+        return {}
+    
+    # Sort selected documents by size
+    sorted_docs = sorted(selected_docs.items(), key=lambda x: x[1]['size'])
+    
+    # Limit number of documents processed
+    if len(sorted_docs) > MAX_DOCUMENTS_PER_BATCH:
+        st.warning(f"Selected {len(sorted_docs)} documents. Processing first {MAX_DOCUMENTS_PER_BATCH} documents to prevent memory issues.")
+        sorted_docs = sorted_docs[:MAX_DOCUMENTS_PER_BATCH]
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    memory_text = st.empty()
+    
+    total_chars = 0
+    extracted_docs = {}
+    
+    for idx, (rel_path, doc_info) in enumerate(sorted_docs):
+        status_text.text(f"Processing {rel_path}...")
+        
+        # Check memory before processing
+        allocated, reserved = get_memory_usage()
+        memory_text.text(f"GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+        
+        try:
+            text = extract_text_from_file_path(doc_info['path'])
+            
+            # Check if adding this document would exceed character limit
+            if total_chars + len(text) > MAX_TOTAL_CHARS:
+                st.warning(f"Document {rel_path} would exceed total character limit. Truncating...")
+                text = truncate_text(text, MAX_TOTAL_CHARS - total_chars)
+            
+            # Chunk the text if it's too large
+            chunks = chunk_text(text)
+            
+            if len(chunks) > 1:
+                st.info(f"Document {rel_path} split into {len(chunks)} chunks for memory efficiency.")
+            
+            extracted_docs[rel_path] = {
+                'text': text,
+                'chunks': chunks,
+                'size': doc_info['size'],
+                'extension': doc_info['extension'],
+                'estimated_tokens': estimate_tokens(text)
+            }
+            
+            total_chars += len(text)
+            
+            # Clear GPU memory periodically
+            if idx % 2 == 0:
+                clear_gpu_memory()
+                
+        except Exception as e:
+            extracted_docs[rel_path] = {
+                'text': f"Error extracting text: {str(e)}",
+                'chunks': [],
+                'size': doc_info['size'],
+                'extension': doc_info['extension'],
+                'error': True
+            }
+        
+        progress_bar.progress((idx + 1) / len(sorted_docs))
+    
+    progress_bar.empty()
+    status_text.empty()
+    memory_text.empty()
+    
+    # Final memory cleanup
+    clear_gpu_memory()
+    
+    return extracted_docs
+
 def main():
     st.title("💡 Mistral 7B Chat with Document Upload")
     
@@ -592,16 +708,63 @@ def main():
             else:
                 st.success(f"Found {len(documents)} documents in the data folder.")
                 
-                # Show document list
-                with st.expander(f"📋 Document List ({len(documents)} files)"):
+                # Store available documents in session state
+                st.session_state.available_documents = documents
+                
+                # Initialize selection if needed
+                if not st.session_state.selected_documents:
+                    st.session_state.selected_documents = set(documents.keys())
+                    st.session_state.select_all_documents = True
+                
+                # Show document list with selection checkboxes
+                with st.expander(f"📋 Document Selection ({len(documents)} files)"):
+                    # Select all checkbox
+                    select_all = st.checkbox(
+                        "Select All Documents",
+                        value=st.session_state.select_all_documents,
+                        key="select_all_checkbox",
+                        help="Toggle to select or deselect all documents"
+                    )
+                    
+                    # Update select all state if changed
+                    if select_all != st.session_state.select_all_documents:
+                        st.session_state.select_all_documents = select_all
+                        handle_select_all_documents(documents)
+                        st.rerun()
+                    
+                    st.divider()
+                    
+                    # Individual document checkboxes
                     for rel_path, doc_info in documents.items():
                         size_mb = doc_info['size'] / (1024 * 1024)
-                        st.text(f"📄 {rel_path} ({size_mb:.2f} MB)")
+                        is_selected = rel_path in st.session_state.selected_documents
+                        
+                        col1, col2 = st.columns([1, 4])
+                        with col1:
+                            doc_selected = st.checkbox(
+                                f"",
+                                value=is_selected,
+                                key=f"doc_{rel_path}",
+                                help=f"Select {rel_path} for processing"
+                            )
+                        
+                        with col2:
+                            st.text(f"📄 {rel_path} ({size_mb:.2f} MB)")
+                        
+                        # Handle individual selection changes
+                        if doc_selected != is_selected:
+                            handle_individual_document_selection(rel_path, doc_selected)
+                            st.rerun()
+                    
+                    # Show selection summary
+                    selected_count = len(st.session_state.selected_documents)
+                    st.divider()
+                    st.info(f"Selected {selected_count} of {len(documents)} documents for processing")
                 
                 # Load documents button
-                if st.button("🔄 Load Documents from Data Folder"):
-                    with st.spinner("Loading documents from data folder..."):
-                        extracted_docs = load_data_folder_documents()
+                if st.button("🔄 Load Selected Documents"):
+                    with st.spinner("Loading selected documents from data folder..."):
+                        extracted_docs = load_selected_documents()
                         st.session_state.data_folder_documents = extracted_docs
                         
                         # Combine all extracted text
@@ -611,7 +774,7 @@ def main():
                                 combined_text += f"\n--- Start of {rel_path} ---\n{doc_data['text']}\n--- End of {rel_path} ---\n"
                         
                         st.session_state.document_context = combined_text
-                        st.success(f"Loaded {len(extracted_docs)} documents successfully!")
+                        st.success(f"Loaded {len(extracted_docs)} selected documents successfully!")
                 
                 # Show loaded documents
                 if st.session_state.data_folder_documents:
