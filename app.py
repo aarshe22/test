@@ -405,27 +405,6 @@ def get_memory_usage():
         return allocated, reserved
     return 0, 0
 
-def handle_select_all_documents(documents):
-    """Handle select all documents checkbox."""
-    if st.session_state.select_all_documents:
-        # Select all documents
-        st.session_state.selected_documents = set(documents.keys())
-    else:
-        # Deselect all documents
-        st.session_state.selected_documents.clear()
-
-def handle_individual_document_selection(doc_path, is_selected):
-    """Handle individual document selection."""
-    if is_selected:
-        st.session_state.selected_documents.add(doc_path)
-    else:
-        st.session_state.selected_documents.discard(doc_path)
-    
-    # Update select all state based on current selections
-    total_docs = len(st.session_state.get('available_documents', {}))
-    if total_docs > 0:
-        st.session_state.select_all_documents = len(st.session_state.selected_documents) == total_docs
-
 def load_selected_documents():
     """Load only the selected documents from the data folder."""
     documents = scan_data_folder()
@@ -729,23 +708,26 @@ def main():
                     # Update select all state if changed
                     if select_all != st.session_state.select_all_documents:
                         st.session_state.select_all_documents = select_all
-                        handle_select_all_documents(documents)
-                        st.rerun()
+                        if select_all:
+                            st.session_state.selected_documents = set(documents.keys())
+                        else:
+                            st.session_state.selected_documents.clear()
                     
                     st.divider()
                     
                     # Individual document checkboxes
-                    for rel_path, doc_info in documents.items():
+                    for idx, (rel_path, doc_info) in enumerate(documents.items()):
                         size_mb = doc_info['size'] / (1024 * 1024)
                         is_selected = rel_path in st.session_state.selected_documents
                         
                         col1, col2 = st.columns([1, 4])
                         with col1:
                             doc_selected = st.checkbox(
-                                f"",
+                                f"Select {rel_path}",
                                 value=is_selected,
-                                key=f"doc_{rel_path}",
-                                help=f"Select {rel_path} for processing"
+                                key=f"doc_checkbox_{idx}_{rel_path.replace('/', '_').replace('.', '_')}",
+                                help=f"Select {rel_path} for processing",
+                                label_visibility="collapsed"
                             )
                         
                         with col2:
@@ -753,8 +735,14 @@ def main():
                         
                         # Handle individual selection changes
                         if doc_selected != is_selected:
-                            handle_individual_document_selection(rel_path, doc_selected)
-                            st.rerun()
+                            if doc_selected:
+                                st.session_state.selected_documents.add(rel_path)
+                            else:
+                                st.session_state.selected_documents.discard(rel_path)
+                            
+                            # Update select all state
+                            total_docs = len(documents)
+                            st.session_state.select_all_documents = len(st.session_state.selected_documents) == total_docs
                     
                     # Show selection summary
                     selected_count = len(st.session_state.selected_documents)
