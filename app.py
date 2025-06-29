@@ -12,11 +12,17 @@ import psutil
 import time
 import json
 import glob
+import gc
 from typing import List, Dict, Any
 from pathlib import Path
 
 MODEL_DIR = "./models/mistral-7b"
 DATA_DIR = "/data"  # Container path for data folder
+
+# Memory management settings
+MAX_CHUNK_SIZE = 4000  # Maximum tokens per chunk
+MAX_DOCUMENTS_PER_BATCH = 5  # Maximum documents to process at once
+MAX_TOTAL_CHARS = 1000000  # Maximum total characters across all documents
 
 st.set_page_config(page_title="Mistral 7B Chat with Document Upload", layout="wide")
 
@@ -117,36 +123,79 @@ def scan_data_folder():
     return documents
 
 def load_data_folder_documents():
-    """Load and extract text from all documents in the data folder."""
+    """Load and extract text from all documents in the data folder with memory management."""
     documents = scan_data_folder()
     extracted_docs = {}
     
-    if documents:
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+    if not documents:
+        return extracted_docs
+    
+    # Sort documents by size to process smaller ones first
+    sorted_docs = sorted(documents.items(), key=lambda x: x[1]['size'])
+    
+    # Limit number of documents processed
+    if len(sorted_docs) > MAX_DOCUMENTS_PER_BATCH:
+        st.warning(f"Found {len(sorted_docs)} documents. Processing first {MAX_DOCUMENTS_PER_BATCH} documents to prevent memory issues.")
+        sorted_docs = sorted_docs[:MAX_DOCUMENTS_PER_BATCH]
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    memory_text = st.empty()
+    
+    total_chars = 0
+    
+    for idx, (rel_path, doc_info) in enumerate(sorted_docs):
+        status_text.text(f"Processing {rel_path}...")
         
-        for idx, (rel_path, doc_info) in enumerate(documents.items()):
-            status_text.text(f"Processing {rel_path}...")
-            
-            try:
-                text = extract_text_from_file_path(doc_info['path'])
-                extracted_docs[rel_path] = {
-                    'text': text,
-                    'size': doc_info['size'],
-                    'extension': doc_info['extension']
-                }
-            except Exception as e:
-                extracted_docs[rel_path] = {
-                    'text': f"Error extracting text: {str(e)}",
-                    'size': doc_info['size'],
-                    'extension': doc_info['extension'],
-                    'error': True
-                }
-            
-            progress_bar.progress((idx + 1) / len(documents))
+        # Check memory before processing
+        allocated, reserved = get_memory_usage()
+        memory_text.text(f"GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
         
-        progress_bar.empty()
-        status_text.empty()
+        try:
+            text = extract_text_from_file_path(doc_info['path'])
+            
+            # Check if adding this document would exceed character limit
+            if total_chars + len(text) > MAX_TOTAL_CHARS:
+                st.warning(f"Document {rel_path} would exceed total character limit. Truncating...")
+                text = truncate_text(text, MAX_TOTAL_CHARS - total_chars)
+            
+            # Chunk the text if it's too large
+            chunks = chunk_text(text)
+            
+            if len(chunks) > 1:
+                st.info(f"Document {rel_path} split into {len(chunks)} chunks for memory efficiency.")
+            
+            extracted_docs[rel_path] = {
+                'text': text,
+                'chunks': chunks,
+                'size': doc_info['size'],
+                'extension': doc_info['extension'],
+                'estimated_tokens': estimate_tokens(text)
+            }
+            
+            total_chars += len(text)
+            
+            # Clear GPU memory periodically
+            if idx % 2 == 0:
+                clear_gpu_memory()
+                
+        except Exception as e:
+            extracted_docs[rel_path] = {
+                'text': f"Error extracting text: {str(e)}",
+                'chunks': [],
+                'size': doc_info['size'],
+                'extension': doc_info['extension'],
+                'error': True
+            }
+        
+        progress_bar.progress((idx + 1) / len(sorted_docs))
+    
+    progress_bar.empty()
+    status_text.empty()
+    memory_text.empty()
+    
+    # Final memory cleanup
+    clear_gpu_memory()
     
     return extracted_docs
 
@@ -280,6 +329,78 @@ def get_conversation_summary(conversation_history: List[Dict]) -> str:
     
     return summary
 
+def chunk_text(text: str, max_chunk_size: int = MAX_CHUNK_SIZE) -> List[str]:
+    """Split text into chunks based on token count."""
+    if not text or len(text) < max_chunk_size:
+        return [text]
+    
+    # Simple chunking by sentences and paragraphs
+    chunks = []
+    current_chunk = ""
+    
+    # Split by paragraphs first
+    paragraphs = text.split('\n\n')
+    
+    for paragraph in paragraphs:
+        # If adding this paragraph would exceed chunk size, save current chunk
+        if len(current_chunk) + len(paragraph) > max_chunk_size and current_chunk:
+            chunks.append(current_chunk.strip())
+            current_chunk = ""
+        
+        # If paragraph itself is too large, split by sentences
+        if len(paragraph) > max_chunk_size:
+            sentences = paragraph.split('. ')
+            for sentence in sentences:
+                if len(current_chunk) + len(sentence) > max_chunk_size and current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+                current_chunk += sentence + ". "
+        else:
+            current_chunk += paragraph + "\n\n"
+    
+    # Add the last chunk if it has content
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+    
+    return chunks
+
+def estimate_tokens(text: str) -> int:
+    """Estimate token count for text (rough approximation)."""
+    # Rough estimation: 1 token ≈ 4 characters for English text
+    return len(text) // 4
+
+def truncate_text(text: str, max_chars: int = MAX_TOTAL_CHARS) -> str:
+    """Truncate text if it exceeds maximum character limit."""
+    if len(text) <= max_chars:
+        return text
+    
+    # Try to truncate at a sentence boundary
+    truncated = text[:max_chars]
+    last_period = truncated.rfind('.')
+    last_newline = truncated.rfind('\n')
+    
+    if last_period > last_newline and last_period > max_chars * 0.8:
+        return truncated[:last_period + 1]
+    elif last_newline > max_chars * 0.8:
+        return truncated[:last_newline]
+    else:
+        return truncated + "\n\n[Text truncated due to size limits]"
+
+def clear_gpu_memory():
+    """Clear GPU memory and run garbage collection."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    gc.collect()
+
+def get_memory_usage():
+    """Get current memory usage information."""
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / (1024**3)  # GB
+        reserved = torch.cuda.memory_reserved() / (1024**3)   # GB
+        return allocated, reserved
+    return 0, 0
+
 def main():
     st.title("💡 Mistral 7B Chat with Document Upload")
     
@@ -326,6 +447,47 @@ def main():
             help="Maximum number of tokens to generate"
         )
         
+        # Memory management settings
+        st.header("💾 Memory Management")
+        with st.expander("⚙️ Advanced Memory Settings"):
+            st.caption("Adjust these settings if you experience memory issues")
+            
+            chunk_size = st.slider(
+                "Max Chunk Size (chars)", 
+                min_value=1000, 
+                max_value=8000, 
+                value=MAX_CHUNK_SIZE, 
+                step=500,
+                help="Maximum characters per document chunk"
+            )
+            
+            max_docs = st.slider(
+                "Max Documents per Batch", 
+                min_value=1, 
+                max_value=10, 
+                value=MAX_DOCUMENTS_PER_BATCH, 
+                step=1,
+                help="Maximum documents to process at once"
+            )
+            
+            max_chars = st.slider(
+                "Max Total Characters", 
+                min_value=500000, 
+                max_value=2000000, 
+                value=MAX_TOTAL_CHARS, 
+                step=100000,
+                help="Maximum total characters across all documents"
+            )
+            
+            if st.button("🔄 Clear GPU Memory"):
+                clear_gpu_memory()
+                st.success("GPU memory cleared!")
+        
+        # Show current memory usage
+        allocated, reserved = get_memory_usage()
+        st.metric("GPU Memory Used", f"{allocated:.2f} GB")
+        st.metric("GPU Memory Reserved", f"{reserved:.2f} GB")
+        
         # Conversation controls
         st.header("💬 Conversation")
         if st.button("🗑️ Clear Conversation"):
@@ -362,16 +524,49 @@ def main():
         uploaded_files = st.file_uploader("Upload PDF, DOC, DOCX, CSV or TXT files", type=["pdf", "doc", "docx", "csv", "txt"], accept_multiple_files=True)
         
         if uploaded_files:
+            # Limit number of uploaded files
+            if len(uploaded_files) > MAX_DOCUMENTS_PER_BATCH:
+                st.warning(f"Too many files uploaded ({len(uploaded_files)}). Processing first {MAX_DOCUMENTS_PER_BATCH} files to prevent memory issues.")
+                uploaded_files = uploaded_files[:MAX_DOCUMENTS_PER_BATCH]
+            
             st.info(f"Extracting text from {len(uploaded_files)} files...")
             progress_bar = st.progress(0)
+            memory_text = st.empty()
             combined_text = ""
+            total_chars = 0
             
             for idx, file in enumerate(uploaded_files):
+                # Check memory before processing
+                allocated, reserved = get_memory_usage()
+                memory_text.text(f"GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+                
                 text = extract_text_from_file(file)
+                
+                # Check if adding this document would exceed character limit
+                if total_chars + len(text) > MAX_TOTAL_CHARS:
+                    st.warning(f"File {file.name} would exceed total character limit. Truncating...")
+                    text = truncate_text(text, MAX_TOTAL_CHARS - total_chars)
+                
+                # Chunk the text if it's too large
+                chunks = chunk_text(text)
+                if len(chunks) > 1:
+                    st.info(f"File {file.name} split into {len(chunks)} chunks for memory efficiency.")
+                
                 combined_text += f"\n--- Start of {file.name} ---\n{text}\n--- End of {file.name} ---\n"
+                total_chars += len(text)
+                
+                # Clear GPU memory periodically
+                if idx % 2 == 0:
+                    clear_gpu_memory()
+                
                 progress_bar.progress((idx + 1) / len(uploaded_files))
             
             progress_bar.empty()
+            memory_text.empty()
+            
+            # Final memory cleanup
+            clear_gpu_memory()
+            
             st.success("Text extraction complete.")
             
             # Update document context in session state
@@ -426,12 +621,18 @@ def main():
                             if doc_data.get('error', False):
                                 st.error(f"❌ {rel_path}: {doc_data['text']}")
                             else:
-                                st.success(f"✅ {rel_path} ({len(doc_data['text'])} characters)")
+                                chunks_info = f" ({len(doc_data['chunks'])} chunks)" if len(doc_data['chunks']) > 1 else ""
+                                tokens_info = f" (~{doc_data['estimated_tokens']} tokens)" if 'estimated_tokens' in doc_data else ""
+                                st.success(f"✅ {rel_path}{chunks_info}{tokens_info} ({len(doc_data['text'])} characters)")
                     
                     # Show combined text
                     if st.session_state.document_context:
                         with st.expander("📄 View Combined Document Text"):
                             st.text_area("Combined Document Text", st.session_state.document_context, height=300, key="data_folder_text_display")
+                        
+                        # Show memory usage
+                        allocated, reserved = get_memory_usage()
+                        st.info(f"📊 Current GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
 
     # Chat interface
     st.header("💬 Chat Interface")

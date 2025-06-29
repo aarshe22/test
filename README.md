@@ -188,7 +188,7 @@ To test the data folder functionality:
 
 ### Common Issues
 1. **Model Download Fails**: Check your Hugging Face token and internet connection
-2. **GPU Memory Issues**: Reduce max tokens or context window
+2. **GPU Memory Issues**: Use the memory optimization script and adjust settings
 3. **Slow Responses**: Check GPU utilization and system resources
 4. **Docker Issues**: Use `reset-docker.sh` to clean up containers
 
@@ -196,6 +196,128 @@ To test the data folder functionality:
 - **Optimize Context Window**: Use smaller values for faster responses
 - **Monitor Resources**: Watch system stats in the sidebar
 - **Clear Conversations**: Regularly clear old conversations to free memory
+- **Use Memory Management**: Adjust chunking and batch settings based on your GPU
+
+## 📈 Future Enhancements
+
+### Planned Features
+- [ ] Advanced document chunking with overlap
+- [ ] Semantic search for document sections
+- [ ] Multi-modal support (images, audio)
+- [ ] User authentication and session management
+- [ ] Database storage for persistent conversations
+- [ ] API endpoints for integration
+
+### Contributing
+Feel free to submit issues and enhancement requests!
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- **Mistral AI** for the excellent Mistral-7B model
+- **Hugging Face** for the transformers library
+- **Streamlit** for the amazing web framework
+- **NVIDIA** for CUDA support and GPU acceleration 
+
+## 🧠 Memory Management
+
+### CUDA Memory Issues
+The application includes comprehensive memory management to prevent CUDA out of memory errors:
+
+#### 🔧 Built-in Memory Management
+- **Document Chunking**: Large documents are automatically split into smaller chunks
+- **Batch Processing**: Limits the number of documents processed simultaneously
+- **Character Limits**: Prevents processing documents that exceed memory capacity
+- **Memory Monitoring**: Real-time GPU memory usage display
+- **Automatic Cleanup**: Periodic GPU memory clearing during processing
+
+#### ⚙️ Memory Settings
+Adjust these settings in the sidebar under "💾 Memory Management":
+- **Max Chunk Size**: Characters per document chunk (1000-8000)
+- **Max Documents per Batch**: Documents processed at once (1-10)
+- **Max Total Characters**: Total characters across all documents (500K-2M)
+- **Clear GPU Memory**: Manual memory cleanup button
+
+#### 🚀 Memory Optimization Script
+Run the memory optimization script to diagnose and fix memory issues:
+```bash
+python optimize_memory.py
+```
+
+This script will:
+- Check system resources (CPU, RAM, GPU)
+- Analyze PyTorch memory usage
+- Provide GPU-specific recommendations
+- Clear memory if requested
+
+#### 💡 Memory Optimization Tips
+
+**For GPUs with < 8GB VRAM:**
+- Set Max Chunk Size to 2000-3000 characters
+- Set Max Documents per Batch to 2-3
+- Set Max Total Characters to 500,000
+- Use smaller documents when possible
+
+**For GPUs with 8-12GB VRAM:**
+- Set Max Chunk Size to 3000-4000 characters
+- Set Max Documents per Batch to 3-5
+- Set Max Total Characters to 800,000
+
+**For GPUs with > 12GB VRAM:**
+- Set Max Chunk Size to 4000-6000 characters
+- Set Max Documents per Batch to 5-8
+- Set Max Total Characters to 1,000,000+
+
+#### 🔄 General Memory Management
+- Process documents in smaller batches
+- Use the "Clear GPU Memory" button regularly
+- Restart the application if memory usage gets too high
+- Consider using the data folder feature instead of uploading large files
+- Monitor memory usage in the sidebar
+
+## 🧪 Testing
+
+### Data Folder Functionality
+To test the data folder functionality:
+
+1. **Run the setup script** (if not already done):
+   ```bash
+   ./setup_data_folder.sh
+   ```
+
+2. **Test the scanning functionality**:
+   ```bash
+   python test_data_folder.py
+   ```
+
+3. **Start the application and test**:
+   - Start with `docker-compose up --build`
+   - Select "📂 Data Folder" in the Document Source section
+   - Click "🔄 Load Documents from Data Folder"
+   - Verify that the sample documents are loaded
+
+### Troubleshooting Data Folder Issues
+- **No documents found**: Ensure files have supported extensions (.pdf, .doc, .docx, .csv, .txt)
+- **Permission errors**: Check that the ./data folder has proper read permissions
+- **Mount issues**: Verify the volume mount in docker-compose.yml is correct
+- **Path issues**: The container expects documents at `/data`, mapped from `./data`
+
+## 🔍 Troubleshooting
+
+### Common Issues
+1. **Model Download Fails**: Check your Hugging Face token and internet connection
+2. **GPU Memory Issues**: Use the memory optimization script and adjust settings
+3. **Slow Responses**: Check GPU utilization and system resources
+4. **Docker Issues**: Use `reset-docker.sh` to clean up containers
+
+### Performance Tips
+- **Optimize Context Window**: Use smaller values for faster responses
+- **Monitor Resources**: Watch system stats in the sidebar
+- **Clear Conversations**: Regularly clear old conversations to free memory
+- **Use Memory Management**: Adjust chunking and batch settings based on your GPU
 
 ## 📈 Future Enhancements
 
