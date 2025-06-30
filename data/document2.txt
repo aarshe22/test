@@ -1,9 +1,0 @@
-This is document 2 for testing the document selection feature.
-
-Key features of the selection system:
-- Real-time selection state management
-- Automatic "Select All" state updates
-- Visual feedback showing selected count
-- Memory-efficient processing of only selected files
-
-Users can now choose exactly which documents they want to analyze, making the system more flexible and efficient. 
